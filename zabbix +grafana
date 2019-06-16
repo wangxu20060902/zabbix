@@ -1,0 +1,100 @@
+ZABBIX 4.0 LTS+Grafana5.3 部署
+部署环境准备
+操作系统: CentOS Linux release 7.5.1804 (Core) 
+软件版本: zabbix-release-4.0-1.el7.noarch.rpm
+grafana版本: grafana-5.3.0-1.x86_64.rpm
+数据库: mysql 5.7
+yum install net-tools vim wget lrzsz -y
+wget -O /etc/yum.repos.d/CentOS-Base.repo http://mirrors.aliyun.com/repo/Centos-7.repo
+vim /etc/hostname  ##更改主机名称
+vim /etc/selinux/config ##关闭selinux
+systemctl stop firewalld  ##关闭防火墙
+systemctl disable firewalld  ##永久关闭防火墙
+sudo yum -y install epel-release  ##安装扩展源
+
+安装mysql 5.7
+
+二、1.安装及配置 Zabbix server
+cd /opt/
+wget https://repo.zabbix.com/zabbix/4.0/rhel/7/x86_64/zabbix-release-4.0-1.el7.noarch.rpm  ##官方
+yum -y install zabbix-release-4.0-1.el7.noarch.rpm
+
+2. 安装Zabbix server, frontend, agent
+yum -y install zabbix-server-mysql zabbix-web-mysql zabbix-agent   ### 无法直接安装
+
+3.安装mysql
+命令：wget https://dev.mysql.com/get/mysql57-community-release-el7-11.noarch.rpm
+安装yum源 yum localinstall mysql57-community-release-el7-11.noarch.rpm 
+检查yum源是否安装成功 yum repolist enabled | grep "mysql.*-community.*"
+安装mysql yum install mysql-community-server
+启动mysql并查看其状态
+systemctl start mysqld
+systemctl status mysqld
+设置mysql为系统服务，随系统启动而启动
+命令：systemctl enable mysqld
+命令：systemctl daemon-reload
+mysql 设置
+命令：grep 'temporary password' /var/log/mysqld.log查mysql默认密码
+更改mysql 密码策略；
+my.cnf文件中增加如下设置
+#如果不需要密码策略，禁用密码策略
+validate_password = off
+# 密码选择策略 0-LOW，1-MEDIUM，2-STRONG需要提供密码字典文件
+validate_password_policy = 0
+修改字符编码为utf8
+在[mysqld]下增加如下配置
+character_set_server = utf8
+init_connect = 'SET NAMES utf8'
+保存好之后重启mysql ：    systemctl restart mysqld
+Mysql –uroot –p
+Mysql>set password = password('gemalto.123');更改mysql root密码
+Mysql> create database zabbix character set utf8 collate utf8_bin; 创建zabbix数据库
+Mysql> grant all privileges on zabbix.* to zabbix@localhost identified by 'zabbix';创建zabbix数据用户和加权限
+Mysql>flush privileges;刷新权限
+将zabbix数据表导入数据库中
+zcat /usr/share/doc/zabbix-server-mysql*/create.sql.gz | mysql -uzabbix -p zabbix
+配置数据库zabbix server
+vim /etc/zabbix/zabbix_server.conf 
+DBPassword=zabbix
+编辑Zabbix前端PHP配置,更改时区
+vim /etc/httpd/conf.d/zabbix.conf
+php_value date.timezone Asia/Shanghai
+启动zabbix-server zabbix-agent httpd 并设置开机启动
+systemctl restart zabbix-server zabbix-agent httpd
+systemctl enable zabbix-server zabbix-agent httpd
+登录zabbix： http://192.168.124.152/zabbix/
+输入刚才数据库密码和命名一直下一步知道出现登录界面
+默认登录账号Admin 密码：zabbix
+7.中文显示乱码的问题
+将windows下的黑体字体，C:\Windows\Fonts拷贝到/usr/share/zabbix/assets/fonts目录下即可
+修改配置文件defines.inc.php
+vim /usr/share/zabbix/include/defines.inc.php
+#修改第65行
+define('ZBX_GRAPH_FONT_NAME',           'simhei'); 
+#修改第110行
+define('ZBX_FONT_NAME', 'simhei');
+
+三、grafana5.3安装及配置
+cd /opt/
+wget https://s3-us-west-2.amazonaws.com/grafana-releases/release/grafana-5.3.0-1.x86_64.rpm
+2.安装
+yum -y install fontconfig freetype* urw-fonts
+yum -y install grafana-5.3.0-1.x86_64.rpm 
+启动grafana并设置开机启动
+systemctl enable grafana-server.service
+systemctl start grafana-server.service
+grafana 登录：http://192.168.124.152:3000
+默认账号admin 默认密码：admin
+http://192.168.124.152/zabbix/api_jasonrpc.php
+
+四、添加监控主机
+cd /opt/
+wget https://repo.zabbix.com/zabbix/4.0/rhel/7/x86_64/zabbix-release-4.0-1.el7.noarch.rpm  ##官方
+yum -y install zabbix-release-4.0-1.el7.noarch.rpm
+yum -y install zabbix-agent
+vim /etc/zabbix/zabbix_agentd.conf
+Server=192.168.124.152
+ServerActive=192.168.124.152
+Hostname=zabbix-client
+保存 
+systemctl start zabbix-agent
