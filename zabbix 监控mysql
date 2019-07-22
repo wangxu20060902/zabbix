@@ -1,0 +1,58 @@
+zabix 监控mysql
+
+一、登录数据库
+mysql -uroot -p
+#下面是需要在数据库里面执行的命令，为了安装请不要指定all权限，也不要指定所有库，并且需要有一个安全的密码
+grant all on *.* to "zabbix"@"localhost" identified by "gemalto.123";
+
+二、cp /etc/zabbix/zabbix_agentd.d/userparameter_mysql.conf /etc/zabbix/zabbix_agentd.d/userparameter_mysql.conf_bak ##备份配置文件
+vim /etc/zabbix/zabbix_agentd.d/userparameter_mysql.conf   ##修改配置文件内容如下
+# For all the following commands HOME should be set to the directory that has .my.cnf file with password information.
+
+# Flexible parameter to grab global variables. On the frontend side, use keys like mysql.status[Com_insert].
+# Key syntax is mysql.status[variable].
+UserParameter=mysql.status[*],echo "show global status where Variable_name='$1';" | HOME=/usr/local/zabbix/etc mysql -N | awk '{print $$2}'
+
+# Flexible parameter to determine database or table size. On the frontend side, use keys like mysql.size[zabbix,history,data].
+# Key syntax is mysql.size[<database>,<table>,<type>].
+# Database may be a database name or "all". Default is "all".
+# Table may be a table name or "all". Default is "all".
+# Type may be "data", "index", "free" or "both". Both is a sum of data and index. Default is "both".
+# Database is mandatory if a table is specified. Type may be specified always.
+# Returns value in bytes.
+# 'sum' on data_length or index_length alone needed when we are getting this information for whole database instead of a single table
+UserParameter=mysql.size[*],bash -c 'echo "select sum($(case "$3" in both|"") echo "data_length+index_length";; data|index) echo "$3_length";; free) echo "data_free";; esac)) from information_schema.tables$([[ "$1" = "all" || ! "$1" ]] || echo " where table_schema=\"$1\"")$([[ "$2" = "all" || ! "$2" ]] || echo "and table_name=\"$2\"");" | HOME=/usr/local/zabbix/etc mysql -N'
+
+UserParameter=mysql.ping,HOME=/usr/local/zabbix/etc mysqladmin ping | grep -c alive
+UserParameter=mysql.version,mysql -V
+
+###需要更改的地方：
+如果你的zabbix不是yum安装，那么需要更改HOME后面的变量为zabbix配置文件所在目录，如：/usr/local/zabbix/etc
+如果你的MySQL不是yum安装，那么需要添加MySQL的可执行文件到环境变量，或者更改为绝对路径
+更改默认MySQL访问的用户名
+也可以添加自定义Key
+
+三、在配置文件指定的HOME目录创建指定的.my.cnf配置文件，主要定义连接MySQL的信息
+vim /usr/local/zabbix/etc/.my.cnf  ###设置mysql的连接信息
+[mysql]
+host=localhost
+user=zabbix
+password=gemalto.123
+port=3306
+
+[mysqladmin]
+host=localhost
+user=zabbix
+password=gemalto.123
+port=3306
+
+四、systemctl restart zabbix-agent
+
+问题注意事项：
+userparameter配置文件修改错误，比如：指定的用户不对，路径不对
+授权数据库用户权限不对，无法获取数据
+.my.cnf配置文件错误或者路径错误
+zabbix_agentd配置文件没有包含userparameter_mysql.conf配置文件
+
+五、登录到zabbix web 配置监控项连接模板
+找到对应的主机在模板选择  Template DB MySQL 模板
