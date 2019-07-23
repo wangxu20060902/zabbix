@@ -9,7 +9,7 @@ Zabbix监控tomcat和java
 6.Zabbix-Javagateway就相当于一个代理，它负责收集客户端tomcat数据,zabbix-server只要向zabbix-java-gateway取数据添加到数据库即可
 
 二、安装
-1.安装  yum -y install zabbix-java-gateway
+1.安装  yum -y install zabbix-java-gateway java
 error: Failed dependencies: 	java-headless >= 1.6.0 is needed by zabbix-java-gateway-4.0.10-1.el7.x8  ###报错此处应该先安装java  yum install java -y
 2.启动
 systemctl start zabbix-java-gateway
