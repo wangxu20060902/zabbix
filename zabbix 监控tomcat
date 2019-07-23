@@ -1,0 +1,150 @@
+Zabbix监控tomcat和java
+
+一、理解怎么监控tomcat
+1.zabbix-Web前端界面，它通过数据库里数据展示。和其它组件不直接关联
+2.zabbix-server运行在10051端口，Zabbix-server要知道java应用程序的某项性能的使用时候 ，会启动自身的一个Zabbix-JavaPollers进程去链接zabbix-JavaGateway请求数据，而zabbix-Javagateway收到请求后并使用；
+3.Zabbixserver有一个特殊的进程用来连接Javagateway叫StartJavaPollers；Javagateway通过配置文件中START_POLLERS参数设置启动多个线程，在zabbix服务器这边如果一个连接所用时间超过Timeout，将会被中断，但是Javagateway将继续从JMXcounter取数据。所以StartJavaPollers设置的值要小于等于START_POLLERS设置的值。
+4.zabbix-java-gateway工作在10052端口，Zabbix-Javagateway就相当于一个代理，它负责收集客户端tomcat数据。图中的12345端口是在配置tomcat时指定的，可是自定义。
+5.在一个监控系统只有一个zabbix-java-gateway，可以部署在zabbix-sever端也可以部署在其他机器上，需要和zabbix-server网络可达。
+6.Zabbix-Javagateway就相当于一个代理，它负责收集客户端tomcat数据,zabbix-server只要向zabbix-java-gateway取数据添加到数据库即可
+
+二、安装
+1.安装  yum -y install zabbix-java-gateway
+error: Failed dependencies: 	java-headless >= 1.6.0 is needed by zabbix-java-gateway-4.0.10-1.el7.x8  ###报错此处应该先安装java  yum install java -y
+2.启动
+systemctl start zabbix-java-gateway
+3.开机启动
+systemctl enable zabbix-java-gateway
+zabbix-java-gateway默认工作在10052端口
+配置zabbix_java_gateway.conf和zabbix_server.conf
+2个文件都在/etc/zabbix下
+重点：Java-gateway配置文件的START_POLLERS参数 >= zabbix_server配置文件的StartJavaPollers参数,建议一样，都设为5。
+配置zabbix_java_gateway.cnf
+# This is a configuration file for Zabbix Java Gateway.
+# It is sourced by startup.sh and shutdown.sh scripts.
+
+### Option: zabbix.listenIP
+#   IP address to listen on.
+#
+# Mandatory: no
+# Default:
+LISTEN_IP="192.168.163.178"（本机ip地址，如果和server安装在相同的位置可以不修改）
+
+### Option: zabbix.listenPort
+#   Port to listen on.
+#
+# Mandatory: no
+# Range: 1024-32767
+# Default:
+LISTEN_PORT=10052（端口可以修改为其他,在server段需要相同的配置）
+
+### Option: zabbix.pidFile
+#   Name of PID file.
+#   If omitted, Zabbix Java Gateway is started as a console application.
+#
+# Mandatory: no
+# Default:
+# PID_FILE=
+
+PID_FILE="/var/run/zabbix/zabbix_java.pid"
+
+### Option: zabbix.startPollers
+#   Number of worker threads to start.
+#
+# Mandatory: no
+# Range: 1-1000
+# Default:
+START_POLLERS=5（设置启动多个线程，这里和server段相同）
+
+### Option: zabbix.timeout
+#   How long to wait for network operations.
+#
+# Mandatory: no
+# Range: 1-30
+# Default:
+# TIMEOUT=3
+TIMEOUT=3（超时时间）
+3.配置zabbix_server.conf:
+让zabbix-server服务能连接到zabbix-java-gateway服务
+### Option: JavaGateway(找到这里配置以下三个参数)
+#   IP address (or hostname) of Zabbix Java gateway.
+#   Only required if Java pollers are started.
+# Mandatory: no
+# Default:
+JavaGateway=192.168.199.63 #如果是本机安装直接使用127.0.0.1
+### Option: JavaGatewayPort
+#   Port that Zabbix Java gateway listens on.
+# Mandatory: no
+# Range: 1024-32767
+# Default:
+JavaGatewayPort=10052 #端口号和javagateway要对应
+### Option: StartJavaPollers
+#   Number of pre-forked instances of Java pollers.#
+# Mandatory: no
+# Range: 0-1000
+# Default:
+StartJavaPollers=5 #线程数和客户端配置对应 不能少于客户端数目
+
+三、配置linux系统客户端
+本例tomcat安装在linux系统上
+配置上tomcat
+添加tomact中JMX的参数
+打开tomcat/bin/catalina.sh文件，在#!/bin/sh下面添加如下
+CATALINA_OPTS="$CATALINA_OPTS -Dcom.sun.management.jmxremote
+     -Dcom.sun.management.jmxremote.authenticate=false
+     -Dcom.sun.management.jmxremote.ssl=false
+     -Dcom.sun.management.jmxremote.port=12345
+     -Djava.rmi.server.hostname=192.168.163.180"
+注意添加的位置在#!/bin/sh下面。
+注意-Djava.rmi.server.hostname=192.168.2.32要加了，hostname填本机的ip地址，除非是127.0.0.1
+查看12345端口监听情况：netstat -antlp|grep 12345
+注意事项
+这里有一点提醒，打/etc/zabbix/zabbix_java_gateway.cnf,在文件有末尾有如下代码：
+#JAVA_OPTIONS="$JAVA_OPTIONS -Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.port=12345
+#       -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false"
+取消注释后，zabbix_java_gateway本身就开启了JMX功能，就可能被远程监控
+
+四、添加catalina-jmx-remote.jar
+在tomcat/lib下执行
+wget http://archive.apache.org/dist/tomcat/tomcat-8/v8.5.43/bin/extras/catalina-jmx-remote.jar
+要找到对应tomcat版本的catalina-jmx-remote.jar。访问tomcat各个版本网站，从上面一直找下去。catalina-jmx-remote.jar文件在tomcat版本的/bin/extras/目录下，只要替换wget后面url即可。
+wget http://archive.apache.org/dist/tomcat/tomcat-8/v8.5.43/bin/extras/catalina-jmx-remote.jar
+
+五、配置zabbix-web
+打开界面，配置->主机->zabbix-client01 （安装了tomcat的主机名）
+找到JMX接口，配置正确的ip 和端口，然后点击添加按钮
+
+六、填坑
+注意以上是在firewalld 关闭的情况下操作完成然后开启了防火墙开放了端口后就怎么都jvm监控都不行了
+1.我以为配置有问题，于是就修改配置，修改了几次还是不行，让我意识到可能不是配置的问题，既然不是配置问题，那最大的可能就是防火墙，关闭防火墙进行测试。让我惊喜的是居然真的通了
+；被监控端的防火墙端口开了，为什么不通呢，难道还有一个端口没有开吗？于是重新开启防火墙，查看端口
+2.真的有端口被调用了，而且是动态的，当重启tomcat后端口又被改变，所以说，开启端口这种方法是行不通的，还有就是开放多端口，将一系列端口开放，但端口多了，容易出现问题，和开不开防火墙差不多。那么到底如何呢，只能是将另一端口固定调用。怎么做呢，方法如下：
+3.修改tomcat/bin/catalina.sh添加的内容
+
+CATALINA_OPTS="$CATALINA_OPTS -Dcom.sun.management.jmxremote
+-Dcom.sun.management.jmxremote.ssl=false
+-Dcom.sun.management.jmxremote.port=12345   #将端口这条去掉，
+-Dcom.sun.management.jmxremote.authenticate=false
+-Djava.rmi.server.hostname=192.168.1.13"  # tomcat服务器IP
+        注：必须去的，如果不去掉，将会导致不成功！
+4.在tomcat/conf/server.xml添加以下内容
+
+<Server port="9005" shutdown="SHUTDOWN">
+  <Listener className="org.apache.catalina.startup.VersionLoggerListener" />
+  <!-- Security listener. Documentation at /docs/config/listeners.html
+  <Listener className="org.apache.catalina.security.SecurityListener" />
+  -->
+  <!--APR library loader. Documentation at /docs/apr.html -->
+  <Listener className="org.apache.catalina.core.AprLifecycleListener" SSLEngine="on" />
+  <!-- Prevent memory leaks due to use of particular java/javax APIs-->
+  <Listener className="org.apache.catalina.core.JreMemoryLeakPreventionListener" />
+  <Listener className="org.apache.catalina.mbeans.GlobalResourcesLifecycleListener" />
+  <Listener className="org.apache.catalina.core.ThreadLocalLeakPreventionListener" />
+  <Listener className="org.apache.catalina.mbeans.JmxRemoteLifecycleListener"  
+          rmiRegistryPortPlatform="12345" rmiServerPortPlatform="12346" />
+          # 添加最后一条
+5.添加被监控端防火墙策略
+firewall-cmd --zone=public --add-port=12346/tcp --permanent
+firewall-cmd --zone=public --add-port=12345/tcp --permanent
+firewall-cmd --reload
+然后进行测试jvm监控ok
