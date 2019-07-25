@@ -86,6 +86,10 @@ systemctl start grafana-server.service
 grafana 登录：http://192.168.124.152:3000
 默认账号admin 默认密码：admin
 http://192.168.124.152/zabbix/api_jasonrpc.php
+3.安装grafana-zabbix插件
+grafana-cli plugins install alexanderzobnin-zabbix-app
+4、安装完grafana-zabbix插件必须重新启动
+systemctl restart grafana-server.service
 
 四、添加监控主机
 cd /opt/
