@@ -1,0 +1,88 @@
+zabbix 监控nginx 
+
+一、通过nginx -V来查看是否有with-http_stub_status_module该模块  nginx -V 这里“V”是大写的，如果是小写的v 即“nginx -v”，则不会出现有哪些模块，只会出现nginx的版本
+如果没有此模块需要重新编译./configure --with-http_stub_status_module  然后 make && makeinstall;
+
+二、配置nginx配置文件
+vim /usr/local/nginx/conf/nginx.conf
+在任意一个server{} 下添加代码如下
+
+  location /status {
+                         stub_status on;
+                         access_log off;
+                         allow 127.0.0.1;  ##允许哪个ip可以访问
+                         allow 192.168.163.178; ## 允许此ip可以访问
+                         allow 192.168.163.179; ## 允许zabbix server 可以访问
+                         deny all;
+        }
+cd /usr/local/nginx/sbin/
+./nginx -s reload    ##重新加载
+验证：curl http://192.168.163.179/status  结果如下
+Active connections: 1 
+server accepts handled requests
+ 2 2 2 
+Reading: 0 Writing: 1 Waiting: 0 
+
+三、创建脚本
+mkdir -p /usr/local/zabbix/scripts  ##存放脚本的路径
+vim /usr/local/zabbix/scripts/ngx_status.sh
+#! /bin/bash
+#date: 2019-05-04
+# Description：zabbix监控nginx性能以及进程状态
+# Note：此脚本需要配置在被监控端，否则ping检测将会得到不符合预期的结果
+
+HOST="192.168.163.179"
+PORT="80"
+
+# 检测nginx进程是否存在
+function ping {
+    /sbin/pidof nginx | wc -l
+}
+# 检测nginx性能
+function active {
+    /usr/bin/curl "http://$HOST:$PORT/status/" 2>/dev/null| grep 'Active' | awk '{print $NF}'
+}
+function reading {
+    /usr/bin/curl "http://$HOST:$PORT/status/" 2>/dev/null| grep 'Reading' | awk '{print $2}'
+}
+function writing {
+    /usr/bin/curl "http://$HOST:$PORT/status/" 2>/dev/null| grep 'Writing' | awk '{print $4}'
+}
+function waiting {
+    /usr/bin/curl "http://$HOST:$PORT/status/" 2>/dev/null| grep 'Waiting' | awk '{print $6}'
+}
+function accepts {
+    /usr/bin/curl "http://$HOST:$PORT/status/" 2>/dev/null| awk NR==3 | awk '{print $1}'
+}
+function handled {
+    /usr/bin/curl "http://$HOST:$PORT/status/" 2>/dev/null| awk NR==3 | awk '{print $2}'
+}
+function requests {
+    /usr/bin/curl "http://$HOST:$PORT/status/" 2>/dev/null| awk NR==3 | awk '{print $3}'
+}
+# 执行function
+$1
+
+:wq  保存
+chmod 755 ngx_status  ##赋予可执行权限
+sh /usr/local/zabbix/scripts/ngx_status.sh active  ##测试脚本
+1
+
+四、配置zabbixd.conf,定义监控脚本key
+更改zabbix-agent配置文件
+vim /etc/zabbix/zabbix_agentd.conf
+UnsafeUserParameters=1   ##开启
+UserParameter=nginx.status[*],/usr/local/zabbix/scripts/ngx_status.sh $1  ##在脚本中添加定义以下各项的键值
+在zabbix服务器端验证
+zabbix_get -s 192.168.163.179 -k nginx.status[active]  
+1
+验证ok
+
+五、配置zabbix web端
+https://www.cnblogs.com/anay/p/8994290.html
+
+找到对应的主机创建监控项 健：nginx.status[ping] 总共有七个值 ping active reading writing accepts handled requests
+一次添加就可以了注意数据类型为十进制
+
+
+
