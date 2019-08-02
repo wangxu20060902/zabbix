@@ -56,3 +56,19 @@ zabbix_agentd配置文件没有包含userparameter_mysql.conf配置文件
 
 五、登录到zabbix web 配置监控项连接模板
 找到对应的主机在模板选择  Template DB MySQL 模板
+
+六 、监控主从状态
+zabbix_agent 配置
+vim /usr/local/etc/zabbix_agentd.conf
+UserParameter=db_status,mysql -uzabbix -p'gemalto.123' -e "show slave status\G" 2>/dev/null|egrep 'Slave_IO_Running|Slave_SQL_Running'|grep -v 'Slave_SQL_Running_State'|awk '{print $NF}'|grep -c Yes //添加此行截取主从状态
+UserParameter=db_delay,mysql -uzabbix -p'gemalto.123' -e "show slave status\G" 2>/dev/null|egrep 'Seconds_Behind_Master'|awk '{print $2}' //添加此行截取延迟状态
+
+重启zabbix-agent
+zabbix_server 端验证：
+ zabbix_get -s 192.168.56.20 -k 'db_status'
+2
+zabbix_get -s 192.168.56.20 -k 'db_delay'
+0
+在zabbix-server端的web界面配置分别配置
+监控项的键值：db_status 和 db_delay
+
